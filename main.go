@@ -1,10 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"log"
+	"net/http"
+
+	"github.com/gorilla/mux"
 	"github.com/jinzhu/gorm"
 	_ "github.com/jinzhu/gorm/dialects/mysql"
-	"log"
 )
 
 // MySQL接続に必要な情報を定数で定義する場合の書き方
@@ -21,22 +25,16 @@ import (
 // 	DBName = "go_sample"
 // )
 
-
 // モデルはテーブルを構造体で表現したもの
 // そのままDBテーブルになる
 type User struct {
 	// gorm.goで定義してるID他を構造体Userに注入
 	gorm.Model
-	// GORM`gorm:`でモデル宣言時に任意でタグを使用可能。Nameフィールドは
-	// 文字列のサイズを255に指定されている。
-	Name string `gorm:"size:255"`
+	Name  string
+	Email string
 	// カラム名を指定できる
-	Age  int	`gorm:"column:test_columnName"`
-	Sex  string `gorm:"size:255"`
-}
-
-func (u User) String() string {
-	return fmt.Sprintf("%s(%d)", u.Name, u.Age)
+	// Age int    `gorm:"column:test_columnName"`
+	// Sex string `gorm:"size:255"`
 }
 
 // MySQLとGORMを繋ぐ関数
@@ -56,14 +54,6 @@ func connectGorm() *gorm.DB {
 	return db
 }
 
-// 構造体usersにデータを入れる関数
-func insert(users []User, db *gorm.DB) {
-	for _, user := range users {
-		db.NewRecord(user)
-		db.Create(&user)
-	}
-}
-
 func main() {
 	// GORMとMySQLを繋いで、変数dbbに格納
 	db := connectGorm()
@@ -71,16 +61,86 @@ func main() {
 	defer db.Close()
 
 	// テーブル名を単数形にする設定。AutoMigrateより後にあるとエラーになる
-	db.SingularTable(true)
+	// db.SingularTable(true)
 	// テーブルが存在しない場合に対象のテーブルを作成する
 	// テーブルなどの生成は行うが削除はできない
 	db.Set("gorm:table_options", "ENGINE = InnoDB").AutoMigrate(&User{})
 
-	// 以下、GORMが動いてるか確かめる処理
-	user1 := User{Name: "yamada", Age: 25, Sex: "male"}
-	user2 := User{Name: "tanaka", Age: 22, Sex: "felame"}
-	insertUsers := []User{user1, user2}
-	insert(insertUsers, db)
+	handleRequests()
+}
 
-	
+func allUsers(w http.ResponseWriter, r *http.Request) {
+	// GORMとMySQLを繋いで、変数dbbに格納
+	db := connectGorm()
+	// 常にdbはクローズする
+	defer db.Close()
+
+	var users []User
+	db.Find(&users)
+	fmt.Println("{}", users)
+
+	json.NewEncoder(w).Encode(users)
+}
+
+func newUser(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("New User Endpoint Hit")
+
+	// GORMとMySQLを繋いで、変数dbbに格納
+	db := connectGorm()
+	// 常にdbはクローズする
+	defer db.Close()
+
+	vars := mux.Vars(r)
+	name := vars["name"]
+	email := vars["email"]
+
+	fmt.Println(name)
+	fmt.Println(email)
+
+	db.Create(&User{Name: name, Email: email})
+	fmt.Fprintf(w, "New User Successfully Created")
+}
+
+func deleteUser(w http.ResponseWriter, r *http.Request) {
+	// GORMとMySQLを繋いで、変数dbbに格納
+	db := connectGorm()
+	// 常にdbはクローズする
+	defer db.Close()
+
+	vars := mux.Vars(r)
+	name := vars["name"]
+
+	var user User
+	db.Where("name = ?", name).Find(&user)
+	db.Delete(&user)
+
+	fmt.Fprintf(w, "Successfully Deleted User")
+}
+
+func updateUser(w http.ResponseWriter, r *http.Request) {
+	// GORMとMySQLを繋いで、変数dbbに格納
+	db := connectGorm()
+	// 常にdbはクローズする
+	defer db.Close()
+
+	vars := mux.Vars(r)
+	name := vars["name"]
+	email := vars["email"]
+
+	var user User
+	db.Where("name = ?", name).Find(&user)
+
+	user.Email = email
+
+	db.Save(&user)
+	fmt.Fprintf(w, "Successfully Updated User")
+}
+
+func handleRequests() {
+	myRouter := mux.NewRouter().StrictSlash(true)
+	myRouter.HandleFunc("/users", allUsers).Methods("GET")
+	myRouter.HandleFunc("/user/{name}", deleteUser).Methods("DELETE")
+	myRouter.HandleFunc("/user/{name}/{email}", updateUser).Methods("PUT")
+	myRouter.HandleFunc("/user/{name}/{email}", newUser).Methods("POST")
+	log.Fatal(http.ListenAndServe(":8080", myRouter))
 }
