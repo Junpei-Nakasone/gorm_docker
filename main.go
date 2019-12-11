@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -9,6 +8,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/jinzhu/gorm"
 	_ "github.com/jinzhu/gorm/dialects/mysql"
+	"github.com/labstack/echo"
 )
 
 // MySQL接続に必要な情報を定数で定義する場合の書き方
@@ -29,15 +29,14 @@ import (
 // そのままDBテーブルになる
 type User struct {
 	// gorm.goで定義してるID他を構造体Userに注入
-	gorm.Model
 	Name  string
 	Email string
 	// カラム名を指定できる
-	// Age int    `gorm:"column:test_columnName"`
-	// Sex string `gorm:"size:255"`
+	Age int    `gorm:"column:test_columnName"`
+	Sex string `gorm:"size:255"`
 }
 
-// MySQLとGORMを繋ぐ関数
+// // MySQLとGORMを繋ぐ関数
 func connectGorm() *gorm.DB {
 	// 変数を使ってMySQLと接続する場合
 	// connectTemplate := "%s:%s@%s/%s"
@@ -45,7 +44,7 @@ func connectGorm() *gorm.DB {
 
 	// ハードコーディングで接続
 	// tcp(127.0.0.1:3306)なしでも接続できたので改良できるかも
-	db, err := gorm.Open("mysql", "root:root@tcp(127.0.0.1:3306)/go_sample")
+	db, err := gorm.Open("mysql", "root:root@tcp(127.0.0.1:3306)/gorm_practice")
 
 	if err != nil {
 		log.Println(err.Error())
@@ -54,32 +53,16 @@ func connectGorm() *gorm.DB {
 	return db
 }
 
-func main() {
-	// GORMとMySQLを繋いで、変数dbbに格納
-	db := connectGorm()
-	// 常にdbはクローズする
-	defer db.Close()
-
-	// テーブル名を単数形にする設定。AutoMigrateより後にあるとエラーになる
-	// db.SingularTable(true)
-	// テーブルが存在しない場合に対象のテーブルを作成する
-	// テーブルなどの生成は行うが削除はできない
-	db.Set("gorm:table_options", "ENGINE = InnoDB").AutoMigrate(&User{})
-
-	handleRequests()
-}
-
-func allUsers(w http.ResponseWriter, r *http.Request) {
-	// GORMとMySQLを繋いで、変数dbbに格納
+func allUsers(c echo.Context) error {
+	// GORMとMySQLを繋いで、変数dbに格納
 	db := connectGorm()
 	// 常にdbはクローズする
 	defer db.Close()
 
 	var users []User
 	db.Find(&users)
-	fmt.Println("{}", users)
 
-	json.NewEncoder(w).Encode(users)
+	return c.JSON(http.StatusOK, &users)
 }
 
 func newUser(w http.ResponseWriter, r *http.Request) {
@@ -136,11 +119,20 @@ func updateUser(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Successfully Updated User")
 }
 
-func handleRequests() {
-	myRouter := mux.NewRouter().StrictSlash(true)
-	myRouter.HandleFunc("/users", allUsers).Methods("GET")
-	myRouter.HandleFunc("/user/{name}", deleteUser).Methods("DELETE")
-	myRouter.HandleFunc("/user/{name}/{email}", updateUser).Methods("PUT")
-	myRouter.HandleFunc("/user/{name}/{email}", newUser).Methods("POST")
-	log.Fatal(http.ListenAndServe(":8080", myRouter))
+func main() {
+	// GORMとMySQLを繋いで、変数dbbに格納
+	db := connectGorm()
+	// 常にdbはクローズする
+	defer db.Close()
+
+	// テーブル名を単数形にする設定。AutoMigrateより後にあるとエラーになる
+	// db.SingularTable(true)
+	// テーブルが存在しない場合に対象のテーブルを作成する
+	// テーブルなどの生成は行うが削除はできない
+	db.Set("gorm:table_options", "ENGINE = InnoDB").AutoMigrate(&User{})
+
+	e := echo.New()
+	e.GET("/users", allUsers)
+
+	e.Start(":8080")
 }
